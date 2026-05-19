@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Word Scramble</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #0f0f0f;
+      color: #f0f0f0;
+      font-family: 'Courier New', monospace;
+      padding: 1.5rem;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      letter-spacing: 0.2em;
+      color: #888;
+      margin-bottom: 2rem;
+      text-transform: uppercase;
+    }
+
+    #card {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 2rem;
+      width: 100%;
+      max-width: 420px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    #scrambled {
+      font-size: 2.4rem;
+      font-weight: bold;
+      letter-spacing: 0.15em;
+      text-align: center;
+      color: #fff;
+    }
+
+    #meta {
+      text-align: center;
+      font-size: 0.8rem;
+      color: #555;
+    }
+
+    #dots {
+      display: flex;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #2a2a2a;
+      transition: background 0.2s;
+    }
+    .dot.used   { background: #e05; }
+    .dot.active { background: #4af; }
+
+    #input-row {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    #guess-input {
+      flex: 1;
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #fff;
+      font-family: inherit;
+      font-size: 1.1rem;
+      padding: 0.6rem 0.8rem;
+      outline: none;
+      text-transform: lowercase;
+    }
+    #guess-input:focus { border-color: #4af; }
+    #guess-input:disabled { opacity: 0.4; }
+
+    button {
+      background: #4af;
+      border: none;
+      border-radius: 8px;
+      color: #000;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: bold;
+      padding: 0.6rem 1rem;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.3; cursor: default; }
+
+    #message {
+      text-align: center;
+      font-size: 0.95rem;
+      min-height: 1.4em;
+      color: #aaa;
+    }
+    #message.win  { color: #4af; }
+    #message.lose { color: #e05; }
+
+    #next-btn {
+      display: none;
+      background: #222;
+      color: #4af;
+      border: 1px solid #4af;
+      width: 100%;
+    }
+    #next-btn.visible { display: block; }
+
+    #stats {
+      display: flex;
+      justify-content: space-around;
+      border-top: 1px solid #222;
+      padding-top: 1rem;
+      font-size: 0.8rem;
+    }
+
+    .stat { display: flex; flex-direction: column; align-items: center; gap: 0.2rem; }
+    .stat-val { font-size: 1.4rem; font-weight: bold; color: #fff; }
+    .stat-lbl { color: #555; text-transform: uppercase; letter-spacing: 0.1em; }
+  </style>
+</head>
+<body>
+  <h1>Word Scramble</h1>
+  <div id="card">
+    <div id="scrambled">——————</div>
+    <div id="meta">· letters</div>
+    <div id="dots"></div>
+    <div id="input-row">
+      <input id="guess-input" type="text" placeholder="your guess" autocomplete="off" autocorrect="off" spellcheck="false" />
+      <button id="submit-btn">Go</button>
+    </div>
+    <div id="message"></div>
+    <button id="next-btn">Next word →</button>
+    <div id="stats">
+      <div class="stat"><span class="stat-val" id="s-wins">0</span><span class="stat-lbl">Wins</span></div>
+      <div class="stat"><span class="stat-val" id="s-losses">0</span><span class="stat-lbl">Losses</span></div>
+      <div class="stat"><span class="stat-val" id="s-streak">0</span><span class="stat-lbl">Streak</span></div>
+      <div class="stat"><span class="stat-val" id="s-best">0</span><span class="stat-lbl">Best</span></div>
+    </div>
+  </div>
+
+  <script>
+    const WORDS = [
+      "python","terminal","keyboard","monitor","browser",
+      "function","variable","integer","boolean","library",
+      "network","program","develop","console","package",
+      "science","captain","lantern","blanket","crystal",
+      "thunder","kitchen","dolphin","journey","penguin",
+      "grammar","comfort","balance","fashion","gallery",
+    ];
+
+    const MAX_GUESSES = 3;
+
+    let state = {
+      word: "", scrambled: "", guesses: 0, done: false,
+      wins: 0, losses: 0, streak: 0, best: 0,
+    };
+
+    function loadStats() {
+      try {
+        const s = JSON.parse(localStorage.getItem("ws-stats") || "{}");
+        state.wins   = s.wins   || 0;
+        state.losses = s.losses || 0;
+        state.streak = s.streak || 0;
+        state.best   = s.best   || 0;
+      } catch {}
+    }
+
+    function saveStats() {
+      localStorage.setItem("ws-stats", JSON.stringify({
+        wins: state.wins, losses: state.losses,
+        streak: state.streak, best: state.best,
+      }));
+    }
+
+    function scramble(word) {
+      const a = word.split("");
+      let s;
+      do { s = a.sort(() => Math.random() - 0.5).join(""); } while (s === word);
+      return s;
+    }
+
+    function newRound() {
+      state.word      = WORDS[Math.floor(Math.random() * WORDS.length)];
+      state.scrambled = scramble(state.word);
+      state.guesses   = 0;
+      state.done      = false;
+
+      document.getElementById("scrambled").textContent = state.scrambled.toUpperCase();
+      document.getElementById("meta").textContent      = `${state.word.length} letters`;
+      document.getElementById("message").textContent   = "";
+      document.getElementById("message").className     = "";
+      document.getElementById("guess-input").value     = "";
+      document.getElementById("guess-input").disabled  = false;
+      document.getElementById("submit-btn").disabled   = false;
+      document.getElementById("next-btn").classList.remove("visible");
+      document.getElementById("guess-input").focus();
+      renderDots();
+      renderStats();
+    }
+
+    function renderDots() {
+      const container = document.getElementById("dots");
+      container.innerHTML = "";
+      for (let i = 0; i < MAX_GUESSES; i++) {
+        const d = document.createElement("div");
+        d.className = "dot" + (i < state.guesses ? " used" : i === state.guesses ? " active" : "");
+        container.appendChild(d);
+      }
+    }
+
+    function renderStats() {
+      document.getElementById("s-wins").textContent   = state.wins;
+      document.getElementById("s-losses").textContent = state.losses;
+      document.getElementById("s-streak").textContent = state.streak;
+      document.getElementById("s-best").textContent   = state.best;
+    }
+
+    function endRound(won) {
+      state.done = true;
+      document.getElementById("guess-input").disabled = true;
+      document.getElementById("submit-btn").disabled  = true;
+      document.getElementById("next-btn").classList.add("visible");
+
+      const msg = document.getElementById("message");
+      if (won) {
+        state.wins++;
+        state.streak++;
+        state.best = Math.max(state.best, state.streak);
+        msg.textContent = "Correct!";
+        msg.className   = "win";
+      } else {
+        state.losses++;
+        state.streak = 0;
+        msg.textContent = `The word was "${state.word}"`;
+        msg.className   = "lose";
+      }
+      saveStats();
+      renderStats();
+    }
+
+    function submitGuess() {
+      if (state.done) return;
+      const input = document.getElementById("guess-input");
+      const guess = input.value.trim().toLowerCase();
+      if (!guess) return;
+      input.value = "";
+
+      state.guesses++;
+      renderDots();
+
+      if (guess === state.word) {
+        endRound(true);
+      } else if (state.guesses >= MAX_GUESSES) {
+        endRound(false);
+      } else {
+        const msg = document.getElementById("message");
+        msg.textContent = `Not quite — ${MAX_GUESSES - state.guesses} guess${MAX_GUESSES - state.guesses === 1 ? "" : "es"} left`;
+        msg.className   = "";
+        input.focus();
+      }
+    }
+
+    document.getElementById("submit-btn").addEventListener("click", submitGuess);
+    document.getElementById("next-btn").addEventListener("click", newRound);
+    document.getElementById("guess-input").addEventListener("keydown", e => {
+      if (e.key === "Enter") submitGuess();
+    });
+
+    loadStats();
+    newRound();
+  </script>
+</body>
+</html>
